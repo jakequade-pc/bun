@@ -1643,10 +1643,8 @@ Socket.prototype.pause = function pause() {
     // libuv only counts a stream handle as active - and therefore as keeping
     // the event loop alive - while it is reading. A paused socket lets the
     // process exit; resume() re-refs it unless the user explicitly unref'd.
-    // Only drop (and record) the loop hold when this handle actually keeps
-    // one. A TLS socket wrapped over a generic duplex has its wrapper ref'd
-    // at creation, so it falls under the recorded case too - the previous
-    // gating left an unrecorded unref that resume() could never undo.
+    // Drop (and record) the loop hold; resume()/read()/_read() restore it
+    // only when this flag is set, so a never-paused socket is never re-ref'd.
     this._handle?.unref?.();
     this[kPausedUnref] = true;
   }

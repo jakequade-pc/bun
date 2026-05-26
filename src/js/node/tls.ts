@@ -784,8 +784,9 @@ var InternalSecureContext = class SecureContext {
           );
       }
     }
-    // The native handle (SSL_CTX wrapper) is what's memoised — not this JS
-    // object — so per-call fields like `servername` come from THIS call's
+    // The native handle (SSL_CTX wrapper) is what may be memoised — not this
+    // JS object — so per-call fields like `servername` come from this call's
+    // options while a cached SSL_CTX is shared by digest.
     this.context = newNativeSecureContext(options, cached);
     this.servername = options?.servername;
   }
