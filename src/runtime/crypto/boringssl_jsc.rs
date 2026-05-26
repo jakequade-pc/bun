@@ -101,7 +101,22 @@ pub fn err_to_js(global: &JSGlobalObject, err_code: u32) -> JSValue {
         code.extend_from_slice(b"ERR_");
         code.extend_from_slice(prefix.as_bytes());
         code.extend_from_slice(lib.as_bytes());
-        code.extend_from_slice(reason);
+        // Node's ThrowCryptoError uppercases the reason and replaces every
+        // non-alphanumeric run with a single underscore. BoringSSL's
+        // SSL-library-specific reasons are already UPPER_SNAKE; the generic
+        // ones ("internal error", "malloc failure") and unknown reasons
+        // ("reason(%u)") need this normalization.
+        for &b in reason {
+            if b.is_ascii_alphanumeric() {
+                code.push(b.to_ascii_uppercase());
+            } else if code.last() != Some(&b'_') {
+                code.push(b'_');
+            }
+        }
+        // Drop a trailing underscore from a non-alphanumeric tail.
+        while code.last() == Some(&b'_') {
+            code.pop();
+        }
         err.put(global, b"code", ZigString::init(&code).to_js(global));
     }
 

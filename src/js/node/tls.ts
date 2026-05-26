@@ -687,8 +687,11 @@ function processPfxOptions(options) {
     }
     const parsed = NativeSecureContext.parsePkcs12(buf, passphrase);
     keys.push(parsed.key);
-    certs.push(parsed.cert);
-    if (parsed.ca) cas.push(parsed.ca);
+    // The PKCS#12 "extra" certificates are the rest of the leaf's chain, not
+    // additional trust anchors: append them to the certificate string so they
+    // go through SSL_CTX_use_certificate_chain (sent to the peer), the same
+    // way Node's LoadPKCS12 does, instead of into the local trust store.
+    certs.push(parsed.ca ? parsed.cert + "\n" + parsed.ca : parsed.cert);
   }
   out.key = keys.length === 1 ? keys[0] : keys;
   out.cert = certs.length === 1 ? certs[0] : certs;
