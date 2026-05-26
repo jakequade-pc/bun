@@ -1248,6 +1248,16 @@ static int ssl_handle_shutdown(struct us_socket_t *s, int force_fast_shutdown) {
 }
 
 struct us_socket_t *us_internal_ssl_close(struct us_socket_t *s, int code, void *reason) {
+  if (s->ssl_in_use) {
+    /* A JS callback running from inside SSL_do_handshake/SSL_read destroyed
+     * this socket. Everything below re-enters BoringSSL on the in-flight SSL
+     * (ssl_update_handshake), repoints the loop's BIO buffers and runs more
+     * JS - defer the whole close to the SSL driver's epilogue instead,
+     * preserving the requested close code. */
+    s->ssl_pending_detach = 1;
+    s->ssl_pending_close_code = (unsigned char) code;
+    return s;
+  }
   /* SEMI_SOCKET never connected — SSL was attached eagerly on the fast-path
    * connect, but no bytes were ever exchanged. Firing on_handshake(0) here
    * lands in JS after onConnectError already tore down `this`/its handlers. */

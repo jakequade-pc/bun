@@ -486,7 +486,15 @@ const ServerHandlers: SocketHandler<NetSocket> = {
       protocols.push(wire.toString("latin1", i + 1, i + 1 + n));
       i += 1 + n;
     }
-    return cb.$call(self, { servername, protocols });
+    const selected = cb.$call(self, { servername, protocols });
+    if (selected !== undefined && !protocols.includes(selected)) {
+      // Node refuses the connection and surfaces a diagnostic when the
+      // callback picks something the client did not offer.
+      const err = new Error("ALPN callback returned a value not in the client's offered protocols");
+      err.code = "ERR_TLS_ALPN_CALLBACK_INVALID_RESULT";
+      throw err;
+    }
+    return selected;
   },
   serverName(server, servername) {
     // Returns the native SecureContext a synchronous SNICallback selects for
@@ -963,14 +971,28 @@ const SocketHandlers2: SocketHandler<NonNullable<import("node:net").Socket["_han
 // config has neither handler never registers the native SNI/ALPN dispatches,
 // so a server without an SNICallback or ALPNCallback does not pay a JS
 // round-trip from inside the handshake for them.
-const { serverName: _serverNameHandler, alpnCallback: _alpnCallbackHandler, ...ServerHandlersNoSNI } = ServerHandlers;
+const {
+  serverName: _serverNameHandler,
+  alpnCallback: _alpnCallbackHandler,
+  ...ServerHandlersNoSNI
+} = ServerHandlers;
 
-/** The handler table for a listen config: the full table only when a
- *  per-connection callback is configured, so other servers never pay a JS
- *  round-trip from inside the handshake. */
+/** The handler table for a listen config: each per-connection callback member
+ *  is included only when the server actually configures it, so a server never
+ *  pays a JS round-trip from inside the handshake for a callback it does not
+ *  use. */
 function serverHandlersFor(server) {
-  return server._SNICallback || server._ALPNCallback ? ServerHandlers : ServerHandlersNoSNI;
+  const sni = !!server._SNICallback;
+  const alpn = !!server._ALPNCallback;
+  if (sni && alpn) return ServerHandlers;
+  if (!sni && !alpn) return ServerHandlersNoSNI;
+  return {
+    ...ServerHandlersNoSNI,
+    ...(sni ? { serverName: ServerHandlers.serverName } : {}),
+    ...(alpn ? { alpnCallback: ServerHandlers.alpnCallback } : {}),
+  };
 }
+
 
 function kConnectTcp(self, addressType, req, address, port) {
   $debug("SocketHandle.kConnectTcp", addressType, address, port);
@@ -1639,6 +1661,9 @@ Socket.prototype[Symbol.for("::bunUpgradeServerTLS::")] = function (connection, 
     // A generic Duplex (or a not-yet-connected net.Socket) has no native fd
     // to adopt into a TLS socket; run the TLS engine over the stream itself.
     // The returned events feed the stream's bytes into the engine and back.
+    // Record the wrapped duplex like the other wrap paths do, so e.g. the
+    // pause() accounting can tell this handle never holds the loop.
+    this[kupgraded] = connection;
     const [result, events] = upgradeDuplexToTLS(connection, {
       data: this,
       tls,

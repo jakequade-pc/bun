@@ -723,10 +723,12 @@ it("connectionListener should emit the right amount of times, and with alpnProto
   expect(count).toBe(50);
 });
 
+
 it("destroying the socket from inside SNICallback or ALPNCallback does not crash the process", async () => {
   // Both callbacks run synchronously from inside the native handshake; a
   // destroy() there must defer the SSL teardown until the handshake call
   // unwinds instead of freeing it out from under BoringSSL.
+  const connections: Array<{ destroy(): void }> = [];
   for (const extra of [
     {
       ALPNCallback(this: unknown, { protocols }: { protocols: string[] }) {
@@ -741,7 +743,7 @@ it("destroying the socket from inside SNICallback or ALPNCallback does not crash
       },
     },
   ]) {
-    const connections: Array<{ destroy(): void }> = [];
+    connections.length = 0;
     const server = tls.createServer({ key: cert1.key, cert: cert1.cert, ...extra }, socket => socket.end());
     server.on("connection", socket => connections.push(socket));
     server.on("tlsClientError", () => {});
