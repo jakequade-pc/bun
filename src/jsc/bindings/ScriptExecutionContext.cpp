@@ -115,6 +115,13 @@ bool ScriptExecutionContext::postTaskTo(ScriptExecutionContextIdentifier identif
     if (!context)
         return false;
 
+    // A context with a pending termination request (Worker.terminate()) never
+    // drains its concurrent queue, so a task enqueued during teardown leaks the
+    // strong refs it captures (e.g. MessagePort::notifyPeerClosed posting a
+    // peerClosed task that pins the MessagePortPipe). Drop it; it can't run.
+    if (context->vm().hasTerminationRequest())
+        return false;
+
     context->postTaskConcurrently(WTF::move(task));
     return true;
 }
