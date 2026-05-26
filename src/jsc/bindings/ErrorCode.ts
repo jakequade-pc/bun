@@ -258,9 +258,7 @@ const errors: ErrorCodeMapping = [
   ["ERR_TLS_PSK_SET_IDENTITY_HINT_FAILED", Error],
   ["ERR_TLS_RENEGOTIATION_DISABLED", Error],
   ["ERR_TLS_SNI_FROM_SERVER", Error],
-  ["ERR_TLS_RENEGOTIATION_UNSUPPORTED", Error],
   ["ERR_TLS_ALPN_CALLBACK_WITH_PROTOCOLS", TypeError],
-  ["ERR_TLS_INVALID_STATE", Error],
   ["ERR_SSL_NO_CIPHER_MATCH", Error],
   ["ERR_UNAVAILABLE_DURING_EXIT", Error],
   ["ERR_UNCAUGHT_EXCEPTION_CAPTURE_ALREADY_SET", Error],
@@ -325,7 +323,10 @@ const errors: ErrorCodeMapping = [
   ["ERR_SECRETS_AUTH_FAILED", Error],
   ["ERR_SECRETS_INTERACTION_REQUIRED", Error],
   // New error codes added by this branch go at the END so existing indices
-  // (which the build cache may have baked into object files) do not shift.
+  // (which build caches and the hand-written src/jsc/ErrorCode.rs mirror have
+  // baked in) do not shift.
+  ["ERR_TLS_RENEGOTIATION_UNSUPPORTED", Error],
+  ["ERR_TLS_INVALID_STATE", Error],
   ["ERR_TLS_ALPN_CALLBACK_INVALID_RESULT", TypeError],
 ];
 export default errors;
