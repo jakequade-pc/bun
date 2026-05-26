@@ -1042,6 +1042,7 @@ void us_internal_ssl_attach(struct us_socket_t *s, SSL_CTX *ctx,
   s->ssl_raw_tap = 0;
   s->ssl_in_use = 0;
   s->ssl_pending_detach = 0;
+  s->ssl_pending_close_code = 0;
   s->ssl_is_server = is_client ? 0 : 1;
 }
 
