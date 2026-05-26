@@ -82,10 +82,10 @@ test("createSecureContext returns the same native handle for identical configs",
   const opts = { ca: tlsCerts.cert, rejectUnauthorized: false };
   const a = tls.createSecureContext(opts);
   const b = tls.createSecureContext({ ...opts });
-  // The JS wrapper carries per-call `servername`, so wrappers differ; the
-  // SSL_CTX-owning `.context` is the deduped native cell.
-  expect(a.context).toBe(b.context);
-  // Different config → different handle.
+  // The user-facing tls.createSecureContext() owns its native SSL_CTX
+  // exclusively (so addCACert cannot leak across user-held contexts); the
+  // per-digest cache applies to the internal connect/listen path only.
+  expect(a.context).not.toBe(b.context);
   const c = tls.createSecureContext({ rejectUnauthorized: false });
   expect(c.context).not.toBe(a.context);
 });
@@ -177,14 +177,14 @@ test("file-backed config: in-place rotation invalidates cache (mtime+size in dig
   const caFile = join(String(dir), "ca.pem");
 
   await withServer(async port => {
-    // Pin the wrapped SecureContext so GC between connects can't drop the
-    // count and turn the strict equalities below into flakes — `.context` is
-    // populated from the Symbol-keyed slot via `createSecureContext`.
+    // Pin each socket so GC between connects can't drop the count and turn
+    // the strict equalities below into flakes. The connect path builds its
+    // own (cached) context from the file-backed options; an explicit
+    // tls.createSecureContext() would bypass the cache.
     const pin: unknown[] = [];
     const connectOnce = async () => {
-      const sc = tls.createSecureContext({ caFile, rejectUnauthorized: false } as any);
-      pin.push(sc);
-      const s = tls.connect({ port, secureContext: sc });
+      const s = tls.connect({ port, caFile, rejectUnauthorized: false } as any);
+      pin.push(s);
       await once(s, "secureConnect");
       s.destroy();
       await once(s, "close");

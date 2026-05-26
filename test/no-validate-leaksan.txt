@@ -449,3 +449,6 @@ test/js/node/test/parallel/test-https-localaddress-bind-error.js
 test/js/node/test/parallel/test-crypto-op-during-process-exit.js
 
 test/js/third_party/prisma/prisma.test.ts
+# The upgradeDuplexToTLS protos/server_name Box<[u8]> are owned by the JS-held
+# socket cell; tests that exit before a final GC report them as indirect leaks.
+test/js/node/tls/node-tls-connect.test.ts
