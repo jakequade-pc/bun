@@ -786,7 +786,7 @@ var InternalSecureContext = class SecureContext {
     }
     // The native handle (SSL_CTX wrapper) is what's memoised — not this JS
     // object — so per-call fields like `servername` come from THIS call's
-      this.context = newNativeSecureContext(options);
+    this.context = newNativeSecureContext(options);
     this.servername = options?.servername;
   }
 };
