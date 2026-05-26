@@ -1380,9 +1380,15 @@ static void ssl_update_handshake(struct us_socket_t *s) {
   int result = SSL_do_handshake(s_ssl(s));
   s->ssl_in_use = ssl_was_in_use;
   if (!ssl_was_in_use && s->ssl_pending_detach) {
-    /* A callback run from inside the handshake destroyed this socket; perform
-     * the deferred close now and do not touch the SSL again. */
+    /* A callback run from inside the handshake destroyed this socket; do not
+     * touch the SSL again. If the force-drain already raw-closed it (it ran
+     * from inside this very callback), only the deferred SSL_free is left;
+     * otherwise perform the full close now. */
     s->ssl_pending_detach = 0;
+    if (us_socket_is_closed(s)) {
+      us_internal_ssl_detach(s);
+      return;
+    }
     us_socket_close(s, s->ssl_pending_close_code, NULL);
     return;
   }
@@ -1523,9 +1529,14 @@ restart:
                              LIBUS_RECV_BUFFER_LENGTH - read);
     s->ssl_in_use = ssl_was_in_use;
     if (!ssl_was_in_use && s->ssl_pending_detach) {
-      /* A callback run from inside this read destroyed the socket; perform
-       * the deferred close now and stop processing. */
+      /* A callback run from inside this read destroyed the socket; do not
+       * touch the SSL again. If the force-drain already raw-closed it, only
+       * the deferred SSL_free is left; otherwise perform the full close now. */
       s->ssl_pending_detach = 0;
+      if (us_socket_is_closed(s)) {
+        us_internal_ssl_detach(s);
+        return s;
+      }
       return us_socket_close(s, s->ssl_pending_close_code, NULL);
     }
 

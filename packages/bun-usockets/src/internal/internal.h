@@ -294,6 +294,10 @@ _Static_assert(sizeof(struct us_socket_flags) == 1, "us_socket_flags grew");
 struct us_connecting_socket_t {
     alignas(LIBUS_EXT_ALIGNMENT) struct addrinfo_request *addrinfo_req;
     struct us_socket_group_t *group;
+    /* Local binding requested via localAddress/localPort, carried through
+     * deferred DNS resolution so each attempt binds before connecting. */
+    struct bsd_addr_t local_addr;
+    int has_local_addr;
     /* Captured at create — stays valid after `group` is detached so the late
      * after_resolve / dns_callback / free path never derefs into freed owner
      * storage to find the loop. */

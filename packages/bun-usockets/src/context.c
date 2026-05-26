@@ -120,7 +120,13 @@ void us_socket_group_close_all_ex(struct us_socket_group_t *group, int also_list
      * open in head_sockets waiting for the peer's reply. Callers of close_all
      * (e.g. Listener.deinit) free the embedding storage immediately after, so
      * any survivor's s->group becomes a dangling pointer. The graceful walk
-     * already flushed close_notify; force-drain the rest synchronously now. */
+     * already flushed close_notify; force-drain the rest synchronously now.
+     *
+     * A socket whose SSL is on the stack right now (ssl_in_use - this whole
+     * close_all is running from inside an SNI/ALPN callback) is fine here:
+     * close_raw unlinks it, closes the fd and runs its on_close while only the
+     * SSL_free is deferred to the SSL driver's epilogue, so the loop always
+     * progresses. */
     while (group->head_sockets) {
         us_internal_socket_close_raw(group->head_sockets, LIBUS_SOCKET_CLOSE_CODE_CONNECTION_RESET, 0);
     }
@@ -584,6 +590,14 @@ void *us_socket_group_connect(struct us_socket_group_t *group, unsigned char kin
     struct us_connecting_socket_t *c = us_calloc(1, sizeof(struct us_connecting_socket_t) + socket_ext_size);
     c->socket_ext_size = socket_ext_size;
     c->options = options;
+    /* Carry the requested local binding through deferred DNS resolution so
+     * each attempt in start_connections binds before connecting (the
+     * synchronous IP-literal and cached-addrinfo paths above forward it
+     * directly). */
+    if (local_addr) {
+        memcpy(&c->local_addr.mem, local_addr, sizeof(struct sockaddr_storage));
+        c->has_local_addr = 1;
+    }
     c->kind = kind;
     c->loop = loop;
     c->ssl_ctx = ssl_ctx;
@@ -636,8 +650,10 @@ int start_connections(struct us_connecting_socket_t *c, int count) {
     for (; c->addrinfo_head != NULL && opened < count; c->addrinfo_head = c->addrinfo_head->ai_next) {
         struct sockaddr_storage addr;
         init_addr_with_port(c->addrinfo_head, c->port, &addr);
-        /* The deferred-DNS path does not carry a local binding. */
-        LIBUS_SOCKET_DESCRIPTOR connect_socket_fd = bsd_create_connect_socket(&addr, NULL, c->options);
+        LIBUS_SOCKET_DESCRIPTOR connect_socket_fd = bsd_create_connect_socket(
+            &addr,
+            c->has_local_addr ? &c->local_addr.mem : NULL,
+            c->options);
         if (connect_socket_fd == LIBUS_SOCKET_ERROR) {
             continue;
         }

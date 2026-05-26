@@ -272,7 +272,7 @@ function validateCiphers(ciphers: string, name: string = "options") {
         // BoringSSL has no security levels: its cipher parser rejects
         // @SECLEVEL with INVALID_COMMAND. Report that the way the native
         // parser would, with Node's decomposed error shape.
-        if (r.startsWith("@SECLEVEL") || r.includes("@SECLEVEL")) {
+        if (r.includes("@SECLEVEL")) {
           const err = new Error("error:0f000076:SSL routines:OPENSSL_internal:INVALID_COMMAND") as Error & {
             code: string;
             library: string;
@@ -698,13 +698,15 @@ function processPfxOptions(options) {
 }
 
 /**
- * Builds the native SecureContext for the user-facing tls.createSecureContext().
- * Bypasses both the JS-cell intern map and the native SSL_CTX cache so the
- * returned context owns its SSL_CTX exclusively - the prototype mutators
- * (addCACert) act on that SSL_CTX, and Node never deduplicates SecureContexts,
- * so a context one user holds must not silently change another. The internal
- * connect/listen paths build their config separately and never expose a
- * mutable .context, so they keep their caching.
+ * Builds the native SecureContext for tls.createSecureContext (and so for
+ * every node:tls connect/listen, since those build a SecureContext and hand
+ * its native .context to the runtime). Bypasses both the JS-cell intern map
+ * and the native SSL_CTX cache so the returned context owns its SSL_CTX
+ * exclusively: the prototype mutators (addCACert) act on that SSL_CTX, and
+ * Node never deduplicates SecureContexts, so one held context must not
+ * silently change another. Only direct Bun.connect/Bun.listen with raw tls
+ * options keep the native cache; the shared-root-store optimization absorbs
+ * most of the per-context cost for the node:tls path.
  */
 function newNativeSecureContext(options) {
   maybeWarnAboutExtraCACerts();
@@ -784,8 +786,7 @@ var InternalSecureContext = class SecureContext {
     }
     // The native handle (SSL_CTX wrapper) is what's memoised — not this JS
     // object — so per-call fields like `servername` come from THIS call's
-    // options while the expensive SSL_CTX is shared.
-    this.context = newNativeSecureContext(options);
+      this.context = newNativeSecureContext(options);
     this.servername = options?.servername;
   }
 };
@@ -802,8 +803,8 @@ function createSecureContext(options) {
   if (_defaultCACertificatesOverride !== undefined && (options == null || options.ca == null)) {
     options = { ...options, ca: _defaultCACertificatesOverride };
   }
-  // The native handle (SSL_CTX) is memoised inside `NativeSecureContext.intern`
-  // by the per-VM `SSLContextCache`, so no JS-side hashing here. The JS wrapper
+  // The native handle (SSL_CTX) is built fresh per createSecureContext() so
+  // the prototype mutators cannot leak across unrelated contexts.
   // is built fresh because it carries the per-call `servername`.
   return new InternalSecureContext(options);
 }
