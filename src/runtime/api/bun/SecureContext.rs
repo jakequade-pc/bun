@@ -147,10 +147,10 @@ impl SecureContext {
             fn free(ptr: *mut core::ffi::c_void);
         }
         if ok == 0 {
-            // SAFETY: the helper sets a static NUL-terminated tag on failure.
             let reason = if err_reason.is_null() {
                 ""
             } else {
+                // SAFETY: the helper sets a static NUL-terminated tag.
                 unsafe { core::ffi::CStr::from_ptr(err_reason) }
                     .to_str()
                     .unwrap_or("")

@@ -708,11 +708,11 @@ function processPfxOptions(options) {
  * options keep the native cache; the shared-root-store optimization absorbs
  * most of the per-context cost for the node:tls path.
  */
-function newNativeSecureContext(options) {
+function newNativeSecureContext(options, cached = false) {
   maybeWarnAboutExtraCACerts();
   if (options == null) {
     // tls.createSecureContext() with no options builds the default context.
-    return NativeSecureContext.createPrivate({});
+    return (cached ? NativeSecureContext.intern : NativeSecureContext.createPrivate)({});
   }
   options = processPfxOptions(options);
   // ALPN protocols given as an array of strings are converted to the
@@ -750,14 +750,14 @@ function newNativeSecureContext(options) {
       options = { ...options, minVersion, maxVersion };
     }
   }
-  return NativeSecureContext.createPrivate(options);
+  return (cached ? NativeSecureContext.intern : NativeSecureContext.createPrivate)(options);
 }
 
 var InternalSecureContext = class SecureContext {
   context;
   servername;
 
-  constructor(options) {
+  constructor(options, cached = false) {
     if (options) {
       validateSecureContextOptions(options);
       if (options.cert) throwOnInvalidTLSArray("options.cert", options.cert);
@@ -786,13 +786,22 @@ var InternalSecureContext = class SecureContext {
     }
     // The native handle (SSL_CTX wrapper) is what's memoised — not this JS
     // object — so per-call fields like `servername` come from THIS call's
-    this.context = newNativeSecureContext(options);
+    this.context = newNativeSecureContext(options, cached);
     this.servername = options?.servername;
   }
 };
 
 function SecureContext(options): void {
   return new InternalSecureContext(options) as never;
+}
+
+/**
+ * Builds a SecureContext for a connect/listen path that does NOT hand its
+ * native .context out for the user to mutate. Reuses the per-digest SSL_CTX
+ * cache so identical configs share a context the way the rest of Bun does.
+ */
+function createSecureContextInternal(options) {
+  return new InternalSecureContext(options, true);
 }
 
 function createSecureContext(options) {
@@ -901,7 +910,7 @@ function TLSSocket(socket?, options?) {
     // server-upgrade method below; leaving it unset until then means a synchronous
     // teardown during upgradeTLS won't call close() on the bare net.Socket.
   }
-  this[ksecureContext] = options.secureContext || createSecureContext(options);
+  this[ksecureContext] = options.secureContext || createSecureContextInternal(options);
   this.authorized = false;
   this.secureConnecting = true;
   this._secureEstablished = false;

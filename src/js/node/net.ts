@@ -235,7 +235,11 @@ function tlsHandshakeError(verifyError) {
       err.library = "SSL routines";
       err.function = match[1];
       err.reason = match[2];
-      err.code = `ERR_SSL_${match[2]}`;
+      // BoringSSL's SSL-library-specific reasons are already UPPER_SNAKE, but
+      // generic reasons ("internal error", "malloc failure") and unknown
+      // reasons ("reason(%u)") need the same normalization Node's
+      // ThrowCryptoError applies.
+      err.code = `ERR_SSL_${match[2].toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`;
     } else {
       err.code = verifyError.code;
     }
@@ -1513,6 +1517,14 @@ Socket.prototype._destroy = function _destroy(err, callback) {
   $debug("Socket.prototype._destroy");
 
   this.connecting = false;
+  // Tear down a wrapped generic duplex with this socket: the native handle's
+  // close only flushes close_notify and lets the wrapper drain; without an
+  // explicit destroy here a late RST on the underlying transport can surface
+  // as an unhandled error after this socket is gone.
+  const upgraded = this[kupgraded];
+  if (upgraded && !(upgraded instanceof Socket) && !upgraded.destroyed) {
+    upgraded.destroy?.();
+  }
 
   for (let s = this; s !== null; s = s._parent) {
     clearTimeout(s[kTimeout]);

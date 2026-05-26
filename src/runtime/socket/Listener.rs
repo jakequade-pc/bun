@@ -1150,7 +1150,7 @@ impl Listener {
                         // Free old resources before reassignment to prevent memory leaks
                         // when sockets are reused for reconnection (common with MongoDB driver)
                         prev.connection.set(Some(connection));
-                        prev.local_binding.set(local_binding.clone());
+                        prev.local_binding.set(local_binding);
                         if prev.flags.get().contains(SocketFlags::OWNED_PROTOS) {
                             prev.protos.set(None);
                         }
@@ -1165,7 +1165,7 @@ impl Listener {
                             handlers: Cell::new(NonNull::new(handlers_ptr)),
                             socket: Cell::new(uws::NewSocketHandler::<true>::DETACHED),
                             connection: JsCell::new(Some(connection)),
-                            local_binding: JsCell::new(local_binding.clone()),
+                            local_binding: JsCell::new(local_binding),
                             protos: JsCell::new(ssl_taken.as_mut().and_then(|s| s.take_protos())),
                             server_name: JsCell::new(
                                 ssl_taken.as_mut().and_then(|s| s.take_server_name()),
@@ -1250,7 +1250,7 @@ impl Listener {
                         // non-pipe arm below. Previously `.connection = null`
                         // dropped the duped pipe-path bytes on the floor.
                         prev.connection.set(Some(connection));
-                        prev.local_binding.set(local_binding.clone());
+                        prev.local_binding.set(local_binding);
                         debug_assert!(prev.protos.get().is_none());
                         debug_assert!(prev.server_name.get().is_none());
                         prev_ptr
@@ -1260,7 +1260,7 @@ impl Listener {
                             handlers: Cell::new(NonNull::new(handlers_ptr)),
                             socket: Cell::new(uws::NewSocketHandler::<false>::DETACHED),
                             connection: JsCell::new(Some(connection)),
-                            local_binding: JsCell::new(local_binding.clone()),
+                            local_binding: JsCell::new(local_binding),
                             protos: JsCell::new(None),
                             server_name: JsCell::new(None),
                             owned_ssl_ctx: Cell::new(None),
@@ -1377,7 +1377,7 @@ impl Listener {
                 prev_maybe_tls,
                 handlers_ptr,
                 connection,
-                local_binding.clone(),
+                local_binding,
                 ssl_taken.as_mut(),
                 owned_ssl_ctx,
                 default_data,
@@ -1391,7 +1391,7 @@ impl Listener {
                 prev_maybe_tcp,
                 handlers_ptr,
                 connection,
-                local_binding.clone(),
+                local_binding,
                 ssl_taken.as_mut(),
                 owned_ssl_ctx,
                 default_data,
@@ -1507,7 +1507,7 @@ fn connect_finish<const IS_SSL: bool>(
         // Free old resources before reassignment to prevent memory leaks
         // when sockets are reused for reconnection (common with MongoDB driver)
         prev.connection.set(Some(connection));
-        prev.local_binding.set(local_binding.clone());
+        prev.local_binding.set(local_binding);
         if prev.flags.get().contains(SocketFlags::OWNED_PROTOS) {
             prev.protos.set(None); // drop old Box
         }
@@ -1526,7 +1526,7 @@ fn connect_finish<const IS_SSL: bool>(
             handlers: Cell::new(NonNull::new(handlers_ptr)),
             socket: Cell::new(uws::NewSocketHandler::<IS_SSL>::DETACHED),
             connection: JsCell::new(Some(connection)),
-            local_binding: JsCell::new(local_binding.clone()),
+            local_binding: JsCell::new(local_binding),
             protos: JsCell::new(ssl.as_mut().and_then(|s| s.take_protos())),
             server_name: JsCell::new(ssl.as_mut().and_then(|s| s.take_server_name())),
             owned_ssl_ctx: Cell::new(owned_ssl_ctx.map(|p| p.as_ptr())),
