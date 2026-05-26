@@ -93,12 +93,12 @@ function appendTlsKeylog(line: Buffer) {
       // degenerate CLI values rather than throwing at module load.
       if (Number.isFinite(value) && value >= 1) setDefaultAutoSelectFamilyAttemptTimeout(value);
     } else if (arg === "--network-family-autoselection-attempt-timeout" && i + 1 < execArgv.length) {
-      const value = Number(execArgv[i + 1]);
+      const value = Number(execArgv[++i]);
       if (Number.isFinite(value) && value >= 1) setDefaultAutoSelectFamilyAttemptTimeout(value);
     } else if (arg.startsWith("--tls-keylog=")) {
       tlsKeylogPath = arg.slice("--tls-keylog=".length);
     } else if (arg === "--tls-keylog" && i + 1 < execArgv.length) {
-      tlsKeylogPath = execArgv[i + 1];
+      tlsKeylogPath = execArgv[++i];
     }
   }
 }
@@ -1631,13 +1631,12 @@ Socket.prototype.pause = function pause() {
     // libuv only counts a stream handle as active - and therefore as keeping
     // the event loop alive - while it is reading. A paused socket lets the
     // process exit; resume() re-refs it unless the user explicitly unref'd.
+    // Only drop (and record) the loop hold when this handle actually keeps
+    // one. A TLS socket wrapped over a generic duplex has its wrapper ref'd
+    // at creation, so it falls under the recorded case too - the previous
+    // gating left an unrecorded unref that resume() could never undo.
     this._handle?.unref?.();
-    // Only remember the unref when this handle can actually hold the loop: a
-    // TLS socket wrapped over a generic duplex has no fd, so re-refing it
-    // later would newly pin the process.
-    if (!this[kupgraded] || this[kupgraded] instanceof Socket) {
-      this[kPausedUnref] = true;
-    }
+    this[kPausedUnref] = true;
   }
   return Duplex.prototype.pause.$call(this);
 };

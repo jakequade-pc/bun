@@ -107,26 +107,12 @@ extern "C" fn select_alpn_callback(
         if !callback.is_empty() && !handlers.vm.is_shutting_down() && !in_.is_null() && inlen > 0 {
             let scope = Handlers::enter_ref(handlers);
             let global = handlers.global_object;
-            let this_value = this.get_this_value(&global);
-            let wire_len = inlen as usize;
-            let buffer = match JSValue::create_buffer_from_length(&global, wire_len) {
-                Ok(b) => b,
-                Err(_) => {
-                    if scope.exit() {
-                        this.handlers.set(None);
-                    }
-                    return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
-                }
-            };
-            if let Some(ab) = buffer.as_array_buffer(&global) {
-                // SAFETY: `ab.ptr` points at a fresh `wire_len`-byte JS buffer
-                // and `in_` is valid for `inlen` per the callback contract.
-                unsafe { core::ptr::copy_nonoverlapping(in_, ab.ptr, wire_len) };
-            }
-            // Snapshot the per-loop shared BIO state before running JS, so a
+            // Snapshot the per-loop shared BIO state before doing anything that
+            // can run JS (including the buffer allocation below), so a
             // synchronous TLS write/shutdown on a different socket from inside
             // the callback cannot misroute this handshake's next BIO write or
-            // drop its piggy-backed input. See ssl_snapshot_loop_data.
+            // drop its piggy-backed input. See ssl_snapshot_loop_data. Restored
+            // at every exit from this block.
             unsafe extern "C" {
                 fn us_internal_ssl_snapshot_loop_data(
                     ssl: *mut boringssl_sys::SSL,
@@ -141,6 +127,24 @@ extern "C" fn select_alpn_callback(
             // SAFETY: `ssl` is the live in-flight SSL; the snapshot buffer is
             // 4 pointers wide as the C side requires.
             unsafe { us_internal_ssl_snapshot_loop_data(ssl, snap.as_mut_ptr().cast()) };
+            let this_value = this.get_this_value(&global);
+            let wire_len = inlen as usize;
+            let buffer = match JSValue::create_buffer_from_length(&global, wire_len) {
+                Ok(b) => b,
+                Err(_) => {
+                    if scope.exit() {
+                        this.handlers.set(None);
+                    }
+                    // SAFETY: same `ssl` and buffer as the snapshot above.
+                    unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
+                    return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
+                }
+            };
+            if let Some(ab) = buffer.as_array_buffer(&global) {
+                // SAFETY: `ab.ptr` points at a fresh `wire_len`-byte JS buffer
+                // and `in_` is valid for `inlen` per the callback contract.
+                unsafe { core::ptr::copy_nonoverlapping(in_, ab.ptr, wire_len) };
+            }
             let servername_ptr = unsafe { boringssl_sys::SSL_get_servername(ssl.cast_const(), 0) };
             let servername_js = if servername_ptr.is_null() {
                 JSValue::UNDEFINED
@@ -154,13 +158,14 @@ extern "C" fn select_alpn_callback(
                     Ok(v) => v,
                     Err(err) => global.take_exception(err),
                 };
-            // SAFETY: same `ssl` and buffer as the snapshot above.
-            unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
             if let Some(err_value) = result.to_error() {
                 let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
                 if scope.exit() {
                     this.handlers.set(None);
                 }
+                // SAFETY: same `ssl` and buffer as the snapshot above; this is
+                // the last point control re-enters BoringSSL on this path.
+                unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
                 return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
             }
             if scope.exit() {
@@ -169,12 +174,22 @@ extern "C" fn select_alpn_callback(
             if !result.is_boolean() || result.to_boolean() {
                 // The server has an ALPNCallback and it answered: a string
                 // selects that protocol for this connection; anything else
-                // refuses it.
+                // refuses it. Read the bytes only when the result IS a string
+                // - to_slice on a non-string runs userland toString.
+                if !result.is_string() {
+                    // SAFETY: same `ssl` and buffer as the snapshot above.
+                    unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
+                    return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
+                }
                 let Ok(chosen) = result.to_slice(&global) else {
+                    // SAFETY: same `ssl` and buffer as the snapshot above.
+                    unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
                     return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
                 };
                 let chosen_bytes = chosen.slice();
-                if !result.is_string() || chosen_bytes.is_empty() || chosen_bytes.len() > 255 {
+                if chosen_bytes.is_empty() || chosen_bytes.len() > 255 {
+                    // SAFETY: same `ssl` and buffer as the snapshot above.
+                    unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
                     return boringssl_sys::SSL_TLSEXT_ERR_ALERT_FATAL;
                 }
                 let mut wire = Vec::with_capacity(chosen_bytes.len() + 1);
@@ -185,6 +200,10 @@ extern "C" fn select_alpn_callback(
                 // negotiates against the single chosen protocol (and sends the
                 // fatal alert if the client did not actually offer it).
             }
+            // SAFETY: same `ssl` and buffer as the snapshot above; this covers
+            // the fall-through (string accepted) and the `false` (no callback
+            // configured) paths - everything below is JS-free.
+            unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
         }
     }
     if let Some(protos) = this.protos.get() {
