@@ -432,15 +432,12 @@ function SocketEmitEndNT(self, _err?) {
   // ("read ECONNRESET") instead of emitting a graceful 'end'. The synthesis
   // is gated on:
   //   - !destroyed, so an already-torn-down socket isn't re-destroyed;
-  //   - !kended, so an RST that arrives after a clean EOF was already
-  //     delivered (a server stopping after finishing its response) is not
-  //     misreported as data loss;
   //   - an error listener being present, so test/server-side teardown that
   //     never owned the socket beyond the request/response cycle does not see
   //     an unhandled error between tests. This is a pragmatic gate that keeps
   //     the previous silent-EOF behaviour for callers that never opted into
   //     error handling while giving Node's error to those that did.
-  if (_err && !self.destroyed && !self[kended] && self.listenerCount("error") > 0) {
+  if (_err && !self.destroyed && self.listenerCount("error") > 0) {
     if (_err.code === "ECONNRESET") {
       // Shape the reset like Node's errnoException(UV_ECONNRESET, 'read'):
       // message "read ECONNRESET" with errno/syscall/code all populated.
