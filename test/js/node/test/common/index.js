@@ -185,7 +185,7 @@ const isPi = (() => {
 const isDumbTerminal = process.env.TERM === 'dumb';
 
 // When using high concurrency or in the CI we need much more time for each connection attempt
-net.setDefaultAutoSelectFamilyAttemptTimeout(platformTimeout(net.getDefaultAutoSelectFamilyAttemptTimeout() * 5));
+net.setDefaultAutoSelectFamilyAttemptTimeout(platformTimeout(net.getDefaultAutoSelectFamilyAttemptTimeout() * 10));
 const defaultAutoSelectFamilyAttemptTimeout = net.getDefaultAutoSelectFamilyAttemptTimeout();
 
 const buildType = process.config.target_defaults ?

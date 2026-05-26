@@ -2510,6 +2510,8 @@ JSC_DEFINE_HOST_FUNCTION(Bun::jsFunctionMakeErrorWithCode, (JSC::JSGlobalObject 
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING, "A dynamic import callback was not specified."_s));
     case ErrorCode::ERR_TLS_ALPN_CALLBACK_WITH_PROTOCOLS:
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_ALPN_CALLBACK_WITH_PROTOCOLS, "The ALPNCallback and ALPNProtocols TLS options are mutually exclusive"_s));
+    case ErrorCode::ERR_TLS_ALPN_CALLBACK_INVALID_RESULT:
+        return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_TLS_ALPN_CALLBACK_INVALID_RESULT, "ALPNCallback returned a value that did not match any of the client's offered protocols"_s));
     case ErrorCode::ERR_HTTP2_TOO_MANY_CUSTOM_SETTINGS:
         return JSC::JSValue::encode(createError(globalObject, ErrorCode::ERR_HTTP2_TOO_MANY_CUSTOM_SETTINGS, "Number of custom settings exceeds MAX_ADDITIONAL_SETTINGS"_s));
     case ErrorCode::ERR_HTTP2_CONNECT_AUTHORITY:

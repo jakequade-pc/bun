@@ -23,10 +23,10 @@ pub static AUTO_SELECT_FAMILY_DEFAULT: AtomicBool = AtomicBool::new(true);
 // If this becomes used in more places, and especially if it can be read by other threads, we may
 // need to store it as a field in the VirtualMachine instead of in a `threadlocal`.
 thread_local! {
-    // Node's default is 250ms with a documented floor of 10ms, but the CLI
-    // default in node_options.h is 500ms; the vendored test/common multiplies
-    // the default by 5 (upstream) assuming 500.
-    pub static AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_DEFAULT: Cell<u32> = const { Cell::new(500) };
+    // Node v24.3.0 (Bun's target) defaults to 250ms with a documented floor
+    // of 10ms; v25+ bumped it to 500ms. test/common multiplies whatever this
+    // returns, so the value is purely a parity question.
+    pub static AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_DEFAULT: Cell<u32> = const { Cell::new(250) };
 }
 
 pub fn get_default_auto_select_family(global: &JSGlobalObject) -> JSValue {

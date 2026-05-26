@@ -359,6 +359,11 @@ struct ssl_ctx_st *us_listen_socket_find_server_name_ctx(struct us_listen_socket
     const char *hostname_pattern) nonnull_fn_decl;
 /* Parses a PKCS#12 blob into malloc'd PEM key/cert/ca strings (caller frees);
  * returns 0 with a static *err_reason tag on failure. */
+/* Snapshots/restores the per-loop shared BIO state so an in-handshake JS
+ * dispatch (ALPN/SNI) can do TLS I/O on a different socket without misrouting
+ * the in-flight handshake's writes. `buf` must be at least 4 pointers wide. */
+void us_internal_ssl_snapshot_loop_data(struct ssl_st *ssl, void *buf);
+void us_internal_ssl_restore_loop_data(struct ssl_st *ssl, const void *buf);
 int us_ssl_parse_pkcs12(const char *data, size_t len, const char *pass,
     char **out_key, size_t *out_key_len, char **out_cert, size_t *out_cert_len,
     char **out_ca, size_t *out_ca_len, const char **err_reason);

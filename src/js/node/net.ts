@@ -490,9 +490,7 @@ const ServerHandlers: SocketHandler<NetSocket> = {
     if (selected !== undefined && !protocols.includes(selected)) {
       // Node refuses the connection and surfaces a diagnostic when the
       // callback picks something the client did not offer.
-      const err = new Error("ALPN callback returned a value not in the client's offered protocols");
-      err.code = "ERR_TLS_ALPN_CALLBACK_INVALID_RESULT";
-      throw err;
+      throw $ERR_TLS_ALPN_CALLBACK_INVALID_RESULT();
     }
     return selected;
   },

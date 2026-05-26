@@ -183,6 +183,46 @@ impl SecureContext {
         Ok(result)
     }
 
+    /// Builds a SecureContext that owns its own SSL_CTX, bypassing both the
+    /// JS-cell intern map and the native SSLContextCache. The prototype
+    /// mutators (`addCACert`) act on the underlying SSL_CTX, so a context the
+    /// user can mutate must never share one. Same codegen-shim arrangement as
+    /// `intern` (no `#[host_fn]` here).
+    pub fn create_private(global: &JSGlobalObject, callframe: &CallFrame) -> JsResult<JSValue> {
+        let args = callframe.arguments();
+        let opts = if !args.is_empty() {
+            args[0]
+        } else {
+            JSValue::UNDEFINED
+        };
+        // SAFETY: `bun_vm()` returns the live per-global VM pointer.
+        let vm = global.bun_vm().as_mut();
+        let config = SSLConfig::from_js(vm, global, opts)?.unwrap_or_else(SSLConfig::zero);
+        let ctx_opts = config.as_usockets();
+        let mut err = uws::create_bun_socket_error_t::none;
+        let Some(ctx) = ctx_opts.create_ssl_context(&mut err) else {
+            // Same error decomposition as `create_with_digest`.
+            if err == uws::create_bun_socket_error_t::none
+                || err == uws::create_bun_socket_error_t::invalid_ciphers
+            {
+                let code = boringssl::ERR_get_error();
+                if code != 0 {
+                    return Err(global.throw_value(err_to_js(global, code)));
+                }
+                if err == uws::create_bun_socket_error_t::none {
+                    return Err(global.throw(format_args!("Failed to create SSL context")));
+                }
+            }
+            return Err(global.throw_value(create_bun_socket_error_to_js(err, global)));
+        };
+        let boxed = Box::new(SecureContext {
+            ctx,
+            digest: ctx_opts.digest(),
+            extra_memory: ctx_opts.approx_cert_bytes() + SSL_CTX_BASE_COST,
+        });
+        Ok(Self::to_js_boxed(boxed, global))
+    }
+
     pub fn intern(global: &JSGlobalObject, callframe: &CallFrame) -> JsResult<JSValue> {
         let args = callframe.arguments();
         let opts = if args.len() > 0 {

@@ -697,11 +697,20 @@ function processPfxOptions(options) {
   return out;
 }
 
+/**
+ * Builds the native SecureContext for the user-facing tls.createSecureContext().
+ * Bypasses both the JS-cell intern map and the native SSL_CTX cache so the
+ * returned context owns its SSL_CTX exclusively - the prototype mutators
+ * (addCACert) act on that SSL_CTX, and Node never deduplicates SecureContexts,
+ * so a context one user holds must not silently change another. The internal
+ * connect/listen paths build their config separately and never expose a
+ * mutable .context, so they keep their caching.
+ */
 function newNativeSecureContext(options) {
   maybeWarnAboutExtraCACerts();
   if (options == null) {
     // tls.createSecureContext() with no options builds the default context.
-    return NativeSecureContext.intern({});
+    return NativeSecureContext.createPrivate({});
   }
   options = processPfxOptions(options);
   // ALPN protocols given as an array of strings are converted to the
@@ -739,7 +748,7 @@ function newNativeSecureContext(options) {
       options = { ...options, minVersion, maxVersion };
     }
   }
-  return NativeSecureContext.intern(options);
+  return NativeSecureContext.createPrivate(options);
 }
 
 var InternalSecureContext = class SecureContext {

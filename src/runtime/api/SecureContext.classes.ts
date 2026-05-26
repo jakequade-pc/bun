@@ -12,6 +12,11 @@ export default [
       // digest so identical configs return the same JS cell. Replaces the
       // old SHA-256/WeakRef cache that lived in `tls.ts`.
       intern: { fn: "intern", length: 1 },
+      // Builds a SecureContext that owns its own SSL_CTX (bypasses both the
+      // JS-cell intern map and the native SSLContextCache) so the prototype
+      // mutators (addCACert) cannot leak across unrelated contexts. Used by
+      // the user-facing tls.createSecureContext().
+      createPrivate: { fn: "create_private", length: 1 },
       // Parses a PKCS#12 (`pfx`) blob into { key, cert, ca } PEM strings so
       // the regular key/cert/ca option plumbing can consume it.
       parsePkcs12: { fn: "parse_pkcs12", length: 2 },

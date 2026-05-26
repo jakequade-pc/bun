@@ -1145,6 +1145,61 @@ struct us_bun_verify_error_t us_internal_ssl_verify_error(struct us_socket_t *s)
  * failure for `s` and return 1; the per-loop scratch is copied to the stack
  * and cleared before the dispatch runs JS. Returns 0 when nothing was parked
  * for this socket. */
+/* The SNI/ALPN callbacks run JS synchronously from inside SSL_do_handshake or
+ * SSL_read; that JS may legitimately do TLS I/O on a different socket on the
+ * same loop (e.g. a metrics push, or destroy()ing a sibling), which repoints
+ * the per-loop shared BIO target via ssl_set_loop_data and zeroes the read
+ * input. Without restoring, the in-flight handshake's next BIO write goes to
+ * the wrong fd and any piggy-backed input is dropped. Unlike session/keylog
+ * these dispatches cannot be parked-and-flushed (they must answer
+ * synchronously), so they save/restore instead. */
+struct ssl_loop_data_snapshot {
+  struct us_socket_t *ssl_socket;
+  char *ssl_read_input;
+  unsigned int ssl_read_input_length;
+  unsigned int ssl_read_input_offset;
+};
+
+static void ssl_snapshot_loop_data(struct loop_ssl_data *d,
+                                   struct ssl_loop_data_snapshot *out) {
+  out->ssl_socket = d->ssl_socket;
+  out->ssl_read_input = d->ssl_read_input;
+  out->ssl_read_input_length = d->ssl_read_input_length;
+  out->ssl_read_input_offset = d->ssl_read_input_offset;
+}
+
+static void ssl_restore_loop_data(struct loop_ssl_data *d,
+                                  const struct ssl_loop_data_snapshot *snap) {
+  d->ssl_socket = snap->ssl_socket;
+  d->ssl_read_input = snap->ssl_read_input;
+  d->ssl_read_input_length = snap->ssl_read_input_length;
+  d->ssl_read_input_offset = snap->ssl_read_input_offset;
+}
+
+/* Exposed for the Rust ALPN dispatch (select_alpn_callback), which runs JS in
+ * the same window as sni_cb but lives outside this translation unit. Takes the
+ * SSL* both dispatch sites have, recovers the owning us_socket_t via ex_data,
+ * and snapshots into a caller-provided 4-pointer-wide buffer. */
+static struct loop_ssl_data *loop_ssl_data_from_ssl(SSL *ssl) {
+  if (!ssl) return NULL;
+  /* Every us_socket_t SSL is bound to the per-loop shared BIO whose data slot
+   * is the loop_ssl_data (set in us_create_loop_ssl_data); recover it that
+   * way rather than via the socket. */
+  BIO *wbio = SSL_get_wbio(ssl);
+  if (!wbio) return NULL;
+  return (struct loop_ssl_data *) BIO_get_data(wbio);
+}
+
+void us_internal_ssl_snapshot_loop_data(SSL *ssl, void *out) {
+  struct loop_ssl_data *d = loop_ssl_data_from_ssl(ssl);
+  if (d) ssl_snapshot_loop_data(d, (struct ssl_loop_data_snapshot *) out);
+}
+
+void us_internal_ssl_restore_loop_data(SSL *ssl, const void *snap) {
+  struct loop_ssl_data *d = loop_ssl_data_from_ssl(ssl);
+  if (d) ssl_restore_loop_data(d, (const struct ssl_loop_data_snapshot *) snap);
+}
+
 static int ssl_dispatch_parked_reason(struct us_socket_t *s) {
   struct loop_ssl_data *loop_ssl_data =
       (struct loop_ssl_data *) s->group->loop->data.ssl_data;
@@ -1755,8 +1810,13 @@ static int sni_cb(SSL *ssl, int *al, void *arg) {
        * cached in the SNI tree, so the callback runs per-connection the way
        * Node's does and an attacker-controlled servername cannot grow the
        * tree. The callback runs JS and may close this listener; nothing
-       * below touches ls after it returns. */
+       * below touches ls after it returns. The save/restore keeps the
+       * per-loop BIO target pointed at this socket if that JS does TLS I/O
+       * on a different one. */
+      struct ssl_loop_data_snapshot snap = {0};
+      us_internal_ssl_snapshot_loop_data(ssl, &snap);
       SSL_CTX *dyn = ls->on_server_name(ls, hostname);
+      us_internal_ssl_restore_loop_data(ssl, &snap);
       if (dyn) {
         SSL_set_SSL_CTX(ssl, dyn);
         /* The resolver hands back an owned reference and SSL_set_SSL_CTX

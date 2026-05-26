@@ -123,6 +123,24 @@ extern "C" fn select_alpn_callback(
                 // and `in_` is valid for `inlen` per the callback contract.
                 unsafe { core::ptr::copy_nonoverlapping(in_, ab.ptr, wire_len) };
             }
+            // Snapshot the per-loop shared BIO state before running JS, so a
+            // synchronous TLS write/shutdown on a different socket from inside
+            // the callback cannot misroute this handshake's next BIO write or
+            // drop its piggy-backed input. See ssl_snapshot_loop_data.
+            unsafe extern "C" {
+                fn us_internal_ssl_snapshot_loop_data(
+                    ssl: *mut boringssl_sys::SSL,
+                    buf: *mut c_void,
+                );
+                fn us_internal_ssl_restore_loop_data(
+                    ssl: *mut boringssl_sys::SSL,
+                    buf: *const c_void,
+                );
+            }
+            let mut snap = [0usize; 4];
+            // SAFETY: `ssl` is the live in-flight SSL; the snapshot buffer is
+            // 4 pointers wide as the C side requires.
+            unsafe { us_internal_ssl_snapshot_loop_data(ssl, snap.as_mut_ptr().cast()) };
             let servername_ptr = unsafe { boringssl_sys::SSL_get_servername(ssl.cast_const(), 0) };
             let servername_js = if servername_ptr.is_null() {
                 JSValue::UNDEFINED
@@ -136,6 +154,8 @@ extern "C" fn select_alpn_callback(
                     Ok(v) => v,
                     Err(err) => global.take_exception(err),
                 };
+            // SAFETY: same `ssl` and buffer as the snapshot above.
+            unsafe { us_internal_ssl_restore_loop_data(ssl, snap.as_ptr().cast()) };
             if let Some(err_value) = result.to_error() {
                 let _ = handlers.call_error_handler(this_value, &[this_value, err_value]);
                 if scope.exit() {
