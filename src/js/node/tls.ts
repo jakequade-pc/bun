@@ -796,16 +796,7 @@ function SecureContext(options): void {
   return new InternalSecureContext(options) as never;
 }
 
-/**
- * Builds a SecureContext for a connect/listen path that does NOT hand its
- * native .context out for the user to mutate. Reuses the per-digest SSL_CTX
- * cache so identical configs share a context the way the rest of Bun does.
- */
-function createSecureContextInternal(options) {
-  return new InternalSecureContext(options, true);
-}
-
-function createSecureContext(options) {
+function buildSecureContext(options, cached) {
   if (options instanceof InternalSecureContext) return options;
   // When tls.setDefaultCACertificates() has installed an override and no
   // explicit `ca` was given, use the override as the default CA set so the
@@ -813,10 +804,22 @@ function createSecureContext(options) {
   if (_defaultCACertificatesOverride !== undefined && (options == null || options.ca == null)) {
     options = { ...options, ca: _defaultCACertificatesOverride };
   }
-  // The native handle (SSL_CTX) is built fresh per createSecureContext() so
-  // the prototype mutators cannot leak across unrelated contexts.
-  // is built fresh because it carries the per-call `servername`.
-  return new InternalSecureContext(options);
+  return new InternalSecureContext(options, cached);
+}
+
+/**
+ * Builds a SecureContext for a connect/listen path that does NOT hand its
+ * native .context out for the user to mutate. Reuses the per-digest SSL_CTX
+ * cache so identical configs share a context the way the rest of Bun does.
+ */
+function createSecureContextInternal(options) {
+  return buildSecureContext(options, true);
+}
+
+function createSecureContext(options) {
+  // The native handle (SSL_CTX) is built fresh for the user-facing call so
+  // the prototype mutators (addCACert) cannot leak across unrelated contexts.
+  return buildSecureContext(options, false);
 }
 
 // Translate some fields from the handle's C-friendly format into more idiomatic

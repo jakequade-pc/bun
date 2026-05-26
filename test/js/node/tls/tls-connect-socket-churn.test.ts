@@ -59,18 +59,20 @@ test("tls.connect churn does not leak SSL_CTX or us_socket_context_t", async () 
   // crypto, not a wait-for-condition.
 }, 30_000);
 
-test("createSecureContext memoises the native SSL_CTX (not the wrapper) by config", () => {
+test("createSecureContext returns an unshared SSL_CTX; the connect path memoises by config", () => {
+  // The user-facing tls.createSecureContext() must hand back a context whose
+  // native SSL_CTX is its own — addCACert mutates that SSL_CTX, and Node never
+  // deduplicates SecureContexts, so one held context must not silently change
+  // another's trust set.
   const a = tls.createSecureContext({ cert: tlsCerts.cert });
   const b = tls.createSecureContext({ cert: tlsCerts.cert, servername: "other.example" });
-  // Same SSL_CTX-relevant fields → same native handle…
-  expect(a.context).toBe(b.context);
-  // …but the wrapper is fresh so per-call fields don't leak across callers.
-  expect(a).not.toBe(b);
+  expect(a.context).not.toBe(b.context);
   expect(b.servername).toBe("other.example");
   expect(a.servername).toBeUndefined();
-  // Different SSL_CTX-relevant config → different native handle.
-  const c = tls.createSecureContext({ cert: tlsCerts.cert, rejectUnauthorized: false });
-  expect(c.context).not.toBe(a.context);
+
+  // The internal connect/listen path still memoises by config digest (verified
+  // by the live-SSL_CTX-count check in the churn test above); the per-digest
+  // cache key is not on the public surface, so the contract is asserted there.
 });
 
 // The shared `defaultClientSslCtx` (used by `Bun.connect({tls:true})` AND
